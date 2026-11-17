@@ -47,7 +47,9 @@ import androidx.media3.session.SessionToken;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,6 +62,8 @@ import java.util.concurrent.Executors;
 @UnstableApi
 public final class MainActivity extends Activity implements Player.Listener {
     private static final int PICK_AUDIO = 100;
+    private static final int PICK_FOLDER = 101;
+    private static final int PICK_LYRICS = 102;
     private static final int BACKGROUND = 0xff15131c;
     private static final int SURFACE = 0xff23202e;
     private static final int PLAYER_SURFACE = 0xff2b2540;
@@ -76,11 +80,13 @@ public final class MainActivity extends Activity implements Player.Listener {
         public void run() {
             if (shownTrackRevision != library.trackRevision()) refreshLibrary();
             updateProgress();
+            playbackPanels.updateLyrics();
             handler.postDelayed(this, 350);
         }
     };
 
     private LibraryStore library;
+    private PlaybackPanels playbackPanels;
     private MediaController controller;
     private ListenableFuture<MediaController> controllerFuture;
     private boolean playlistTab;
@@ -89,6 +95,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     private int shownTrackRevision;
     private boolean seeking;
     private boolean importing;
+    private String pendingLyricsTrack;
 
     private Button add;
     private Button libraryTab;
@@ -116,9 +123,11 @@ public final class MainActivity extends Activity implements Player.Listener {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         library = LibraryStore.get(this);
+        playbackPanels = new PlaybackPanels(this, library, () -> controller, this::chooseLyrics);
         buildScreen();
         if (state != null) {
             playlistTab = state.getBoolean("playlistTab");
+            pendingLyricsTrack = state.getString("pendingLyricsTrack");
             long id = state.getLong("playlistId", -1);
             if (id != -1) {
                 openPlaylist = library.playlists().stream().filter(item -> item.id() == id)
@@ -135,6 +144,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         state.putBoolean("playlistTab", playlistTab);
         state.putLong("playlistId", openPlaylist == null ? -1 : openPlaylist.id());
         state.putString("search", search.getText().toString());
+        state.putString("pendingLyricsTrack", pendingLyricsTrack);
     }
 
     @Override
@@ -164,6 +174,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     @Override
     protected void onStop() {
         handler.removeCallbacks(clock);
+        playbackPanels.closeLyrics();
         if (controller != null) controller.removeListener(this);
         if (controllerFuture != null) MediaController.releaseFuture(controllerFuture);
         controller = null;
@@ -197,7 +208,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         LinearLayout.LayoutParams title = new LinearLayout.LayoutParams(0, -2, 1);
         title.leftMargin = dp(10);
         header.addView(name, title);
-        add = action("+  Add music", ACCENT, ON_ACCENT, this::chooseAudio);
+        add = action("+  Add music", ACCENT, ON_ACCENT, this::showImportChoices);
         header.addView(add, new LinearLayout.LayoutParams(-2, dp(48)));
         root.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
@@ -276,6 +287,10 @@ public final class MainActivity extends Activity implements Player.Listener {
         LinearLayout.LayoutParams captionParams = new LinearLayout.LayoutParams(0, -2, 1);
         captionParams.leftMargin = dp(10);
         track.addView(captions, captionParams);
+        Button lyrics = action("Lyrics", PLAYER_SURFACE, ACCENT, playbackPanels::showLyrics);
+        Button queue = action("Queue", PLAYER_SURFACE, ACCENT, playbackPanels::showQueue);
+        track.addView(lyrics, new LinearLayout.LayoutParams(-2, dp(48)));
+        track.addView(queue, new LinearLayout.LayoutParams(-2, dp(48)));
         card.addView(track);
 
         LinearLayout timeline = row();
@@ -328,21 +343,71 @@ public final class MainActivity extends Activity implements Player.Listener {
         return card;
     }
 
+    private void showImportChoices() {
+        PopupMenu choices = new PopupMenu(this, add);
+        choices.getMenu().add("Add files").setOnMenuItemClickListener(item -> {
+            chooseAudio();
+            return true;
+        });
+        choices.getMenu().add("Add folder").setOnMenuItemClickListener(item -> {
+            openPicker(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), PICK_FOLDER);
+            return true;
+        });
+        choices.show();
+    }
+
     private void chooseAudio() {
         Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("audio/*")
                 .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        openPicker(picker, PICK_AUDIO);
+    }
+
+    private void chooseLyrics(String track) {
+        Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+        if (openPicker(picker, PICK_LYRICS)) pendingLyricsTrack = track;
+    }
+
+    private boolean openPicker(Intent picker, int request) {
         try {
-            startActivityForResult(picker, PICK_AUDIO);
+            startActivityForResult(picker, request);
+            return true;
         } catch (ActivityNotFoundException error) {
             showMessage("A file picker is unavailable on this device.");
+            return false;
         }
     }
 
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
-        if (request != PICK_AUDIO || result != RESULT_OK || data == null) return;
+        if (request == PICK_LYRICS) {
+            String track = pendingLyricsTrack;
+            pendingLyricsTrack = null;
+            if (result == RESULT_OK && data != null && data.getData() != null && track != null) {
+                Uri file = data.getData();
+                FILES.execute(() -> importLyrics(track, file));
+            }
+            return;
+        }
+        if (result != RESULT_OK || data == null) return;
+        if (request == PICK_FOLDER && data.getData() != null) {
+            Uri folder = data.getData();
+            startImport("Scanning folder…");
+            FILES.execute(() -> {
+                AudioFolder.Scan scan;
+                try {
+                    scan = AudioFolder.scan(getContentResolver(), folder);
+                } catch (RuntimeException error) {
+                    finishImport("The selected folder could not be read.");
+                    return;
+                }
+                importAudio(scan.audioFiles(), scan.unreadableFolders());
+            });
+            return;
+        }
+        if (request != PICK_AUDIO) return;
         Set<Uri> selected = new LinkedHashSet<>();
         if (data.getData() != null) selected.add(data.getData());
         ClipData clips = data.getClipData();
@@ -353,14 +418,18 @@ public final class MainActivity extends Activity implements Player.Listener {
             }
         }
         if (selected.isEmpty()) return;
-        importing = true;
-        add.setEnabled(false);
-        status.setText("Importing music…");
-        status.setVisibility(View.VISIBLE);
-        FILES.execute(() -> importAudio(selected));
+        startImport("Importing music…");
+        FILES.execute(() -> importAudio(selected, 0));
     }
 
-    private void importAudio(Set<Uri> selected) {
+    private void startImport(String progress) {
+        importing = true;
+        add.setEnabled(false);
+        status.setText(progress);
+        status.setVisibility(View.VISIBLE);
+    }
+
+    private void importAudio(Collection<Uri> selected, int unreadableFolders) {
         int added = 0;
         int copies = 0;
         int unavailable = 0;
@@ -372,16 +441,35 @@ public final class MainActivity extends Activity implements Player.Listener {
                 unavailable++;
             }
         }
-        String message = "Added " + added + (added == 1 ? " track" : " tracks");
+        String message = selected.isEmpty() && unreadableFolders == 0 ? "No audio files found in the folder."
+                : "Added " + added + (added == 1 ? " track" : " tracks");
         if (copies > 0) message += " · " + copies + " already in library";
         if (unavailable > 0) message += " · " + unavailable + " could not be imported";
-        String summary = message;
+        if (unreadableFolders > 0) message += " · " + unreadableFolders + " folders could not be read";
+        finishImport(message);
+    }
+
+    private void finishImport(String message) {
         handler.post(() -> {
             if (isDestroyed()) return;
             importing = false;
             add.setEnabled(true);
-            status.setText(summary);
+            status.setText(message);
             refreshLibrary();
+        });
+    }
+
+    private void importLyrics(String track, Uri uri) {
+        String message;
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            String content = TimedLyrics.read(input);
+            message = library.setLyrics(track, content) ? "Synced lyrics saved" : "This track is no longer in the library";
+        } catch (IOException | RuntimeException error) {
+            message = "Choose a readable .lrc file with timed lyrics";
+        }
+        String result = message;
+        handler.post(() -> {
+            if (!isDestroyed()) showMessage(result);
         });
     }
 
@@ -469,6 +557,21 @@ public final class MainActivity extends Activity implements Player.Listener {
 
     private void showTrackMenu(View anchor, LibraryStore.Track track) {
         PopupMenu menu = new PopupMenu(this, anchor);
+        boolean hasLyrics = library.lyrics(track.id()) != null;
+        menu.getMenu().add(hasLyrics ? "Replace synced lyrics" : "Add synced lyrics")
+                .setOnMenuItemClickListener(item -> {
+                    chooseLyrics(track.id());
+                    return true;
+                });
+        if (hasLyrics) {
+            menu.getMenu().add("Remove synced lyrics").setOnMenuItemClickListener(item -> {
+                new AlertDialog.Builder(this).setTitle("Remove synced lyrics?")
+                        .setNegativeButton("Cancel", null).setPositiveButton("Remove", (dialog, which) -> {
+                            if (library.setLyrics(track.id(), null)) showMessage("Synced lyrics removed");
+                        }).show();
+                return true;
+            });
+        }
         menu.getMenu().add("Add to playlist").setOnMenuItemClickListener(item -> {
             choosePlaylist(track.id());
             return true;

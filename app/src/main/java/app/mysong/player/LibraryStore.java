@@ -39,7 +39,7 @@ final class LibraryStore extends SQLiteOpenHelper {
     }
 
     private LibraryStore(Context context) {
-        super(context, "my-song.db", null, 1);
+        super(context, "my-song.db", null, 2);
         audioDirectory = new File(context.getFilesDir(), "audio");
     }
 
@@ -51,7 +51,7 @@ final class LibraryStore extends SQLiteOpenHelper {
     @Override
     public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE tracks (id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, "
-                + "artist TEXT NOT NULL, album TEXT NOT NULL, duration INTEGER NOT NULL)");
+                + "artist TEXT NOT NULL, album TEXT NOT NULL, duration INTEGER NOT NULL, lyrics TEXT)");
         db.execSQL("CREATE TABLE playlists (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                 + "name TEXT COLLATE NOCASE UNIQUE NOT NULL)");
         db.execSQL("CREATE TABLE entries (playlist INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE, "
@@ -61,7 +61,24 @@ final class LibraryStore extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int from, int to) {
+        if (from == 1 && to == 2) {
+            db.execSQL("ALTER TABLE tracks ADD COLUMN lyrics TEXT");
+            return;
+        }
         throw new IllegalStateException("Missing database migration from " + from + " to " + to);
+    }
+
+    String lyrics(String track) {
+        try (Cursor cursor = getReadableDatabase().query("tracks", new String[]{"lyrics"},
+                "id=?", new String[]{track}, null, null, null)) {
+            return cursor.moveToFirst() ? cursor.getString(0) : null;
+        }
+    }
+
+    boolean setLyrics(String track, String rawLyrics) {
+        ContentValues values = new ContentValues();
+        values.put("lyrics", rawLyrics);
+        return getWritableDatabase().update("tracks", values, "id=?", new String[]{track}) == 1;
     }
 
     List<Track> tracks(Long playlist) {
