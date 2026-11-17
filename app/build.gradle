@@ -1,0 +1,26 @@
+plugins {
+    id 'com.android.application' version '9.2.1'
+}
+
+android {
+    namespace = 'app.mysong.player'
+    compileSdk = 37
+
+    defaultConfig {
+        applicationId = 'app.mysong.player'
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 2
+        versionName = '1.0.1'
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.media3:media3-exoplayer:1.7.1'
+    implementation 'androidx.media3:media3-session:1.7.1'
+}
