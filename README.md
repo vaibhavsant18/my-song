@@ -2,11 +2,15 @@
 
 An Android music player for audio files on your phone and live internet radio. The app itself is ad-free.
 
-**[Download my-song.apk](https://github.com/vaibhavsant18/my-song/releases/latest/download/my-song.apk)** · [Latest release](https://github.com/vaibhavsant18/my-song/releases/latest)
+## Download for Android
+
+**[Download my-song.apk](https://github.com/vaibhavsant18/my-song/releases/latest/download/my-song.apk)** · [Latest release notes](https://github.com/vaibhavsant18/my-song/releases/latest)
+
+The signed APK runs on Android 8.0 or newer. [Dot & Line (v1.4.0)](https://github.com/vaibhavsant18/my-song/releases/tag/v1.4.0) introduces dot-matrix headings, a redesigned seek ring, and a line-art radio radar.
 
 ## Install on Android
 
-1. On a phone running Android 8.0 or newer, tap **Download my-song.apk**.
+1. On your phone, tap **Download my-song.apk**.
 2. Open the downloaded APK from your notifications or **Downloads** and follow the Android install prompt. If prompted, allow installation from the app you used to open the file.
 3. In my-song, tap **Add music** and choose **Add files** or **Add folder**.
 
