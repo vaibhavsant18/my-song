@@ -7,6 +7,8 @@ import android.content.ClipData;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -25,6 +27,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -33,6 +36,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.PopupMenu;
+import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -68,13 +72,15 @@ public final class MainActivity extends Activity implements Player.Listener {
     private static final int PICK_AUDIO = 100;
     private static final int PICK_FOLDER = 101;
     private static final int PICK_LYRICS = 102;
-    private static final int BACKGROUND = 0xff15131c;
-    private static final int SURFACE = 0xff23202e;
-    private static final int PLAYER_SURFACE = 0xff2b2540;
-    private static final int TEXT = 0xfff5f1fb;
-    private static final int MUTED = 0xffc6bdd3;
-    private static final int ACCENT = 0xffccbfff;
-    private static final int ON_ACCENT = 0xff211737;
+    private static final int BACKGROUND = 0xff10101b;
+    private static final int SURFACE = 0xff1b1c2c;
+    private static final int PLAYER_SURFACE = 0xff22243a;
+    private static final int OUTLINE = 0xff383c56;
+    private static final int TEXT = 0xfff6f4f2;
+    private static final int MUTED = 0xffb9bed4;
+    private static final int ACCENT = 0xff9ee4ff;
+    private static final int SOLAR = 0xffffae77;
+    private static final int ON_ACCENT = 0xff101624;
     private static final ExecutorService FILES = Executors.newSingleThreadExecutor();
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -97,7 +103,8 @@ public final class MainActivity extends Activity implements Player.Listener {
     private LibraryStore.Playlist openPlaylist;
     private List<LibraryStore.Track> visibleTracks = Collections.emptyList();
     private int shownTrackRevision;
-    private boolean seeking;
+    private String seekingMediaId;
+    private boolean playerOpen;
     private boolean importing;
     private String pendingLyricsTrack;
 
@@ -106,6 +113,10 @@ public final class MainActivity extends Activity implements Player.Listener {
     private Button playlistsTab;
     private Button liveTab;
     private Button sectionAction;
+    private LinearLayout libraryScreen;
+    private ScrollView nowPlayingScreen;
+    private OrbitalArtwork shelfArtwork;
+    private OrbitalArtwork playerArtwork;
     private TextView sectionTitle;
     private TextView status;
     private TextView empty;
@@ -113,7 +124,14 @@ public final class MainActivity extends Activity implements Player.Listener {
     private ListView list;
     private RowAdapter adapter;
     private LinearLayout playerCard;
+    private LinearLayout miniDetails;
+    private TextView miniTitle;
+    private TextView miniSubtitle;
+    private Button miniPlay;
+    private Button closePlayer;
     private LinearLayout timeline;
+    private LinearLayout trackActions;
+    private TextView playerHeading;
     private TextView nowTitle;
     private TextView nowArtist;
     private TextView position;
@@ -136,6 +154,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         if (state != null) {
             Tab previousTab = state.getBoolean("playlistTab") ? Tab.PLAYLISTS : Tab.LIBRARY;
             tab = Tab.valueOf(state.getString("tab", previousTab.name()));
+            playerOpen = state.getBoolean("playerOpen");
             pendingLyricsTrack = state.getString("pendingLyricsTrack");
             long id = state.getLong("playlistId", -1);
             if (id != -1) {
@@ -151,6 +170,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putString("tab", tab.name());
+        state.putBoolean("playerOpen", playerOpen);
         state.putLong("playlistId", openPlaylist == null ? -1 : openPlaylist.id());
         state.putString("search", search.getText().toString());
         state.putString("pendingLyricsTrack", pendingLyricsTrack);
@@ -188,12 +208,12 @@ public final class MainActivity extends Activity implements Player.Listener {
         if (controllerFuture != null) MediaController.releaseFuture(controllerFuture);
         controller = null;
         controllerFuture = null;
-        seeking = false;
+        seekingMediaId = null;
         super.onStop();
     }
 
     private void buildScreen() {
-        LinearLayout root = column();
+        FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BACKGROUND);
         root.setPadding(dp(18), dp(12), dp(18), dp(12));
         root.setFocusableInTouchMode(true);
@@ -209,55 +229,55 @@ public final class MainActivity extends Activity implements Player.Listener {
         }
         setContentView(root);
 
+        libraryScreen = column();
+        root.addView(libraryScreen, new FrameLayout.LayoutParams(-1, -1));
+        libraryScreen.addOnLayoutChangeListener((view, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (bottom - top != oldBottom - oldTop) updateShelfArtwork();
+        });
+
         LinearLayout header = row();
         ImageView mark = new ImageView(this);
         mark.setImageResource(R.drawable.ic_mysong);
-        header.addView(mark, new LinearLayout.LayoutParams(dp(42), dp(42)));
-        TextView name = text(getString(R.string.app_name), 30, TEXT, true);
+        header.addView(mark, new LinearLayout.LayoutParams(dp(30), dp(30)));
+        TextView name = text(getString(R.string.app_name), 19, TEXT, true);
         LinearLayout.LayoutParams title = new LinearLayout.LayoutParams(0, -2, 1);
-        title.leftMargin = dp(10);
+        title.leftMargin = dp(8);
         header.addView(name, title);
-        add = action("+  Add music", ACCENT, ON_ACCENT, this::showImportChoices);
-        header.addView(add, new LinearLayout.LayoutParams(-2, dp(48)));
-        root.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        libraryScreen.addView(header, new LinearLayout.LayoutParams(-1, dp(32)));
 
-        search = field("Search songs, artists, albums");
-        search.setContentDescription("Search");
-        margin(root, search, 14, 48);
+        LinearLayout section = row();
+        sectionTitle = text("Library", 30, TEXT, true);
+        if (Build.VERSION.SDK_INT >= 28) sectionTitle.setAccessibilityHeading(true);
+        section.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        add = action("+ Add music", ACCENT, ON_ACCENT, this::showImportChoices);
+        section.addView(add, new LinearLayout.LayoutParams(-2, dp(48)));
+        sectionAction = action("New playlist", ACCENT, ON_ACCENT, () -> {
+            if (tab == Tab.LIVE) stationDialog(null);
+            else if (openPlaylist == null) playlistName(null, null);
+            else showPlaylistMenu(sectionAction, openPlaylist);
+        });
+        section.addView(sectionAction, new LinearLayout.LayoutParams(-2, dp(48)));
+        margin(libraryScreen, section, 10, 48);
+
+        Bitmap planet = BitmapFactory.decodeResource(getResources(), R.drawable.orbital_planet);
+        shelfArtwork = new OrbitalArtwork(this, OrbitalArtwork.Scene.CONSTELLATION, planet);
+        shelfArtwork.setBackground(shape(SURFACE, 18));
+        shelfArtwork.setClipToOutline(true);
+        margin(libraryScreen, shelfArtwork, 10, 113);
+
+        search = field("Search music");
+        margin(libraryScreen, search, 10, 48);
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { refreshLibrary(); }
             @Override public void afterTextChanged(Editable value) {}
         });
 
-        LinearLayout tabs = row();
-        libraryTab = action("Library", ACCENT, ON_ACCENT, () -> changeTab(Tab.LIBRARY));
-        playlistsTab = action("Playlists", SURFACE, TEXT, () -> changeTab(Tab.PLAYLISTS));
-        liveTab = action("Live", SURFACE, TEXT, () -> changeTab(Tab.LIVE));
-        for (Button button : new Button[]{libraryTab, playlistsTab, liveTab}) {
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(46), 1);
-            if (button != libraryTab) params.leftMargin = dp(8);
-            tabs.addView(button, params);
-        }
-        margin(root, tabs, 10, 46);
-
-        LinearLayout section = row();
-        sectionTitle = text("All songs", 21, TEXT, true);
-        sectionTitle.setSingleLine();
-        sectionTitle.setEllipsize(TextUtils.TruncateAt.END);
-        section.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1));
-        sectionAction = action("New playlist", SURFACE, ACCENT, () -> {
-            if (tab == Tab.LIVE) stationDialog(null);
-            else if (openPlaylist == null) playlistName(null, null);
-            else showPlaylistMenu(sectionAction, openPlaylist);
-        });
-        section.addView(sectionAction, new LinearLayout.LayoutParams(-2, dp(48)));
-        margin(root, section, 12, 48);
-
         status = text("", 13, ACCENT, false);
         status.setMaxLines(3);
         status.setVisibility(View.GONE);
-        root.addView(status);
+        libraryScreen.addView(status);
 
         FrameLayout content = new FrameLayout(this);
         list = new ListView(this);
@@ -275,59 +295,126 @@ public final class MainActivity extends Activity implements Player.Listener {
         content.addView(list, new FrameLayout.LayoutParams(-1, -1));
         content.addView(empty, new FrameLayout.LayoutParams(-1, -1));
         list.setEmptyView(empty);
-        root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, 0, 1);
+        listParams.topMargin = dp(4);
+        libraryScreen.addView(content, listParams);
 
-        playerCard = buildPlayer();
+        playerCard = buildMiniPlayer();
         playerCard.setVisibility(View.GONE);
-        margin(root, playerCard, 6, -2);
+        margin(libraryScreen, playerCard, 6, -2);
+
+        LinearLayout tabs = row();
+        libraryTab = action("Library", ACCENT, ON_ACCENT, () -> changeTab(Tab.LIBRARY));
+        playlistsTab = action("Playlists", SURFACE, TEXT, () -> changeTab(Tab.PLAYLISTS));
+        liveTab = action("Live", SURFACE, TEXT, () -> changeTab(Tab.LIVE));
+        for (Button button : new Button[]{libraryTab, playlistsTab, liveTab}) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1);
+            if (button != libraryTab) params.setMarginStart(dp(8));
+            tabs.addView(button, params);
+        }
+        margin(libraryScreen, tabs, 8, 48);
+
+        nowPlayingScreen = buildPlayer(planet);
+        nowPlayingScreen.setVisibility(View.GONE);
+        root.addView(nowPlayingScreen, new FrameLayout.LayoutParams(-1, -1));
         root.requestFocus();
     }
 
-    private LinearLayout buildPlayer() {
-        LinearLayout card = column();
-        card.setPadding(dp(13), dp(10), dp(13), dp(8));
-        card.setBackground(shape(PLAYER_SURFACE, 20));
-        LinearLayout track = row();
+    private LinearLayout buildMiniPlayer() {
+        LinearLayout card = row();
+        card.setPadding(dp(7), dp(5), dp(7), dp(5));
+        card.setBackground(outlined(PLAYER_SURFACE, 16));
+        miniDetails = row();
+        LinearLayout details = miniDetails;
+        details.setOnClickListener(view -> showPlayer(true));
+        details.setFocusable(true);
+        details.setBackground(new RippleDrawable(ColorStateList.valueOf(0x28ffffff),
+                shape(PLAYER_SURFACE, 9), null));
+        details.setMinimumHeight(dp(50));
+        details.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         ImageView artwork = new ImageView(this);
         artwork.setImageResource(R.drawable.ic_mysong);
-        track.addView(artwork, new LinearLayout.LayoutParams(dp(39), dp(39)));
+        artwork.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        details.addView(artwork, new LinearLayout.LayoutParams(dp(40), dp(40)));
         LinearLayout captions = column();
-        nowTitle = text("", 16, TEXT, true);
-        nowArtist = text("", 12, MUTED, false);
-        captions.addView(nowTitle);
-        captions.addView(nowArtist);
+        captions.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        miniTitle = text("", 15, TEXT, true);
+        miniSubtitle = text("", 12, MUTED, false);
+        captions.addView(miniTitle);
+        captions.addView(miniSubtitle);
         LinearLayout.LayoutParams captionParams = new LinearLayout.LayoutParams(0, -2, 1);
-        captionParams.leftMargin = dp(10);
-        track.addView(captions, captionParams);
-        lyrics = action("Lyrics", PLAYER_SURFACE, ACCENT, playbackPanels::showLyrics);
-        queue = action("Queue", PLAYER_SURFACE, ACCENT, playbackPanels::showQueue);
-        track.addView(lyrics, new LinearLayout.LayoutParams(-2, dp(48)));
-        track.addView(queue, new LinearLayout.LayoutParams(-2, dp(48)));
-        card.addView(track);
+        captionParams.setMarginStart(dp(8));
+        details.addView(captions, captionParams);
+        card.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
+        miniPlay = action("▶", ACCENT, ON_ACCENT, this::togglePlayback);
+        miniPlay.setMinWidth(dp(48));
+        LinearLayout.LayoutParams controlParams = new LinearLayout.LayoutParams(-2, dp(48));
+        controlParams.setMarginStart(dp(8));
+        card.addView(miniPlay, controlParams);
+        return card;
+    }
+
+    private ScrollView buildPlayer(Bitmap planet) {
+        ScrollView screen = new ScrollView(this);
+        screen.setFillViewport(true);
+        if (Build.VERSION.SDK_INT >= 28) screen.setAccessibilityPaneTitle("Now playing");
+        LinearLayout card = column();
+        screen.addView(card, new ScrollView.LayoutParams(-1, -2));
+
+        LinearLayout header = row();
+        closePlayer = action("⌄", SURFACE, ACCENT, () -> showPlayer(false));
+        closePlayer.setTextSize(25);
+        closePlayer.setContentDescription("Close Now Playing");
+        header.addView(closePlayer, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        playerHeading = text("Now playing", 16, TEXT, true);
+        playerHeading.setGravity(Gravity.CENTER);
+        if (Build.VERSION.SDK_INT >= 28) playerHeading.setAccessibilityHeading(true);
+        header.addView(playerHeading, new LinearLayout.LayoutParams(0, -2, 1));
+        header.addView(new View(this), new LinearLayout.LayoutParams(dp(48), dp(1)));
+        card.addView(header, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        playerArtwork = new OrbitalArtwork(this, OrbitalArtwork.Scene.PLANET, planet);
+        playerArtwork.setBackground(shape(SURFACE, 24));
+        playerArtwork.setClipToOutline(true);
+        playerArtwork.setScrubListener(new OrbitalArtwork.ScrubListener() {
+            @Override public void onStart() { startSeek(); }
+            @Override public void onPosition(float fraction) {
+                if (seekingCurrentItem()) previewSeek(Math.round(fraction * seek.getMax()));
+            }
+            @Override public void onFinish(boolean commit) { finishSeek(commit); }
+        });
+        margin(card, playerArtwork, 8, 294);
+
+        nowTitle = text("", 28, TEXT, true);
+        nowTitle.setMaxLines(2);
+        nowArtist = text("", 15, MUTED, false);
+        nowArtist.setMaxLines(2);
+        margin(card, nowTitle, 4, -2);
+        margin(card, nowArtist, 0, -2);
 
         timeline = row();
+        timeline.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         position = text("0:00", 12, MUTED, false);
+        position.setTypeface(Typeface.MONOSPACE);
         duration = text("0:00", 12, MUTED, false);
+        duration.setTypeface(Typeface.MONOSPACE);
         duration.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        timeline.addView(position, new LinearLayout.LayoutParams(dp(42), -2));
+        timeline.addView(position, new LinearLayout.LayoutParams(-2, -2));
         seek = new SeekBar(this);
         seek.setContentDescription("Playback position");
         seek.setProgressTintList(ColorStateList.valueOf(ACCENT));
         seek.setThumbTintList(ColorStateList.valueOf(ACCENT));
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onStartTrackingTouch(SeekBar bar) { seeking = true; }
+            @Override public void onStartTrackingTouch(SeekBar bar) { startSeek(); }
             @Override public void onProgressChanged(SeekBar bar, int value, boolean fromUser) {
                 if (!fromUser) return;
-                position.setText(time(value));
-                if (!seeking && controller != null) controller.seekTo(value);
+                previewSeek(value);
+                if (seekingMediaId == null && controller != null && seek.isEnabled()) controller.seekTo(value);
             }
-            @Override public void onStopTrackingTouch(SeekBar bar) {
-                if (controller != null) controller.seekTo(bar.getProgress());
-                seeking = false;
-            }
+            @Override public void onStopTrackingTouch(SeekBar bar) { finishSeek(true); }
         });
-        timeline.addView(seek, new LinearLayout.LayoutParams(0, dp(42), 1));
-        timeline.addView(duration, new LinearLayout.LayoutParams(dp(42), -2));
+        timeline.addView(seek, new LinearLayout.LayoutParams(0, dp(48), 1));
+        timeline.addView(duration, new LinearLayout.LayoutParams(-2, -2));
         card.addView(timeline);
 
         LinearLayout controls = row();
@@ -337,7 +424,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         previous = action("|◀", PLAYER_SURFACE, TEXT, () -> {
             if (controller != null) controller.seekToPrevious();
         });
-        playPause = action("▶", ACCENT, ON_ACCENT, this::togglePlayback);
+        playPause = action("▶", SOLAR, ON_ACCENT, this::togglePlayback);
         next = action("▶|", PLAYER_SURFACE, TEXT, () -> {
             if (controller != null) controller.seekToNextMediaItem();
         });
@@ -349,10 +436,22 @@ public final class MainActivity extends Activity implements Player.Listener {
         previous.setContentDescription("Previous track");
         next.setContentDescription("Next track");
         for (Button control : new Button[]{shuffle, previous, playPause, next, repeat}) {
-            controls.addView(control, new LinearLayout.LayoutParams(0, dp(48), 1));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(52),
+                    control == playPause ? 1.24f : 1f);
+            if (control != shuffle) params.setMarginStart(dp(5));
+            controls.addView(control, params);
         }
-        card.addView(controls);
-        return card;
+        margin(card, controls, 8, -2);
+
+        trackActions = row();
+        queue = action("Queue", SURFACE, ACCENT, playbackPanels::showQueue);
+        lyrics = action("Lyrics", SURFACE, ACCENT, playbackPanels::showLyrics);
+        trackActions.addView(queue, new LinearLayout.LayoutParams(0, dp(48), 1));
+        LinearLayout.LayoutParams lyricsParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+        lyricsParams.setMarginStart(dp(8));
+        trackActions.addView(lyrics, lyricsParams);
+        margin(card, trackActions, 10, -2);
+        return screen;
     }
 
     private void showImportChoices() {
@@ -493,8 +592,25 @@ public final class MainActivity extends Activity implements Player.Listener {
 
     @Override
     public void onBackPressed() {
-        if (openPlaylist != null) changeTab(Tab.PLAYLISTS);
+        if (playerOpen) showPlayer(false);
+        else if (openPlaylist != null) changeTab(Tab.PLAYLISTS);
         else super.onBackPressed();
+    }
+
+    private void showPlayer(boolean open) {
+        playerOpen = open;
+        boolean wasOpen = nowPlayingScreen.getVisibility() == View.VISIBLE;
+        if (wasOpen == open) return;
+        if (open) {
+            InputMethodManager input = getSystemService(InputMethodManager.class);
+            if (input != null) input.hideSoftInputFromWindow(search.getWindowToken(), 0);
+            search.clearFocus();
+            nowPlayingScreen.scrollTo(0, 0);
+        }
+        libraryScreen.setVisibility(open ? View.GONE : View.VISIBLE);
+        nowPlayingScreen.setVisibility(open ? View.VISIBLE : View.GONE);
+        if (open) closePlayer.requestFocus();
+        else if (playerCard.getVisibility() == View.VISIBLE) miniDetails.requestFocus();
     }
 
     private void resetSearch() {
@@ -512,12 +628,13 @@ public final class MainActivity extends Activity implements Player.Listener {
         styleTab(libraryTab, tab == Tab.LIBRARY);
         styleTab(playlistsTab, tab == Tab.PLAYLISTS);
         styleTab(liveTab, live);
-        add.setVisibility(live ? View.GONE : View.VISIBLE);
+        add.setVisibility(tab == Tab.LIBRARY ? View.VISIBLE : View.GONE);
         sectionTitle.setText(live ? "Live radio" : inPlaylist ? openPlaylist.name()
-                : playlistIndex ? "Your playlists" : "All songs");
+                : playlistIndex ? "Playlists" : "Library");
         sectionAction.setVisibility(tab == Tab.LIBRARY ? View.GONE : View.VISIBLE);
         sectionAction.setText(live ? "Add station" : inPlaylist ? "Playlist options" : "New playlist");
-        search.setHint(live ? "Search stations" : playlistIndex ? "Search playlists" : "Search songs, artists, albums");
+        search.setHint(live ? "Search stations" : playlistIndex ? "Search playlists" : "Search music");
+        updateShelfArtwork();
 
         String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
         rows.clear();
@@ -556,6 +673,12 @@ public final class MainActivity extends Activity implements Player.Listener {
                 : inPlaylist ? "Add songs from the Library using the menu beside each track."
                 : "Add audio files to start your offline library.");
         adapter.notifyDataSetChanged();
+    }
+
+    private void updateShelfArtwork() {
+        boolean show = tab != Tab.PLAYLISTS && search.length() == 0 && libraryScreen.getHeight() >= dp(525);
+        shelfArtwork.setVisibility(show ? View.VISIBLE : View.GONE);
+        shelfArtwork.setScene(tab == Tab.LIVE ? OrbitalArtwork.Scene.RADIO : OrbitalArtwork.Scene.CONSTELLATION);
     }
 
     private void styleTab(Button button, boolean selected) {
@@ -818,11 +941,21 @@ public final class MainActivity extends Activity implements Player.Listener {
     private void updatePlayer() {
         MediaItem item = controller == null ? null : controller.getCurrentMediaItem();
         playerCard.setVisibility(item == null ? View.GONE : View.VISIBLE);
+        boolean radio = item != null && RadioStream.isStation(item.mediaId);
+        boolean signalActive = radio && controller.isPlaying();
+        shelfArtwork.setSignalActive(signalActive);
+        playerArtwork.setSignalActive(signalActive);
         adapter.notifyDataSetChanged();
-        if (item == null) return;
-        boolean radio = RadioStream.isStation(item.mediaId);
+        if (item == null) {
+            showPlayer(false);
+            return;
+        }
+        showPlayer(playerOpen);
+        playerHeading.setText(radio ? "Live radio" : "Now playing");
+        if (Build.VERSION.SDK_INT >= 28) nowPlayingScreen.setAccessibilityPaneTitle(playerHeading.getText());
+        playerArtwork.setScene(radio ? OrbitalArtwork.Scene.RADIO : OrbitalArtwork.Scene.PLANET);
         int trackControls = radio ? View.GONE : View.VISIBLE;
-        for (View control : new View[]{lyrics, queue, timeline, shuffle, previous, next, repeat}) {
+        for (View control : new View[]{trackActions, timeline, shuffle, previous, next, repeat}) {
             control.setVisibility(trackControls);
         }
         if (radio) {
@@ -830,11 +963,10 @@ public final class MainActivity extends Activity implements Player.Listener {
             return;
         }
         MediaMetadata metadata = controller.getMediaMetadata();
-        nowTitle.setText(metadata.title == null ? "Audio" : metadata.title);
-        nowArtist.setText(TextUtils.isEmpty(metadata.artist) ? "Playing from your library" : metadata.artist);
+        setPlayerDetails(metadata.title == null ? "Audio" : metadata.title,
+                TextUtils.isEmpty(metadata.artist) ? "From your library" : metadata.artist);
         boolean playing = controller.getPlayWhenReady() && controller.getPlaybackState() != Player.STATE_ENDED;
-        playPause.setText(playing ? "Ⅱ" : "▶");
-        playPause.setContentDescription(playing ? "Pause" : "Play");
+        setPlayLabel(playing ? "Ⅱ" : "▶", playing ? "Pause" : "Play");
         shuffle.setTextColor(controller.getShuffleModeEnabled() ? ACCENT : MUTED);
         shuffle.setContentDescription(controller.getShuffleModeEnabled() ? "Shuffle on" : "Shuffle off");
         repeat.setTextColor(controller.getRepeatMode() == Player.REPEAT_MODE_ALL ? ACCENT : MUTED);
@@ -845,21 +977,35 @@ public final class MainActivity extends Activity implements Player.Listener {
 
     private void updateRadio(MediaItem item) {
         CharSequence station = item.mediaMetadata.title;
-        nowTitle.setText(TextUtils.isEmpty(station) ? "Live radio" : station);
         boolean active = tuningOrPlaying();
-        playPause.setText(active ? "Stop radio" : "Play live");
-        playPause.setContentDescription(active ? "Stop live radio" : "Play live radio");
+        setPlayLabel(active ? "Stop radio" : "Play live", active ? "Stop live radio" : "Play live radio");
         CharSequence program = controller.getMediaMetadata().title;
+        CharSequence description;
         if (controller.getPlayerError() != null) {
-            nowArtist.setText("Station unavailable");
+            description = "Station unavailable";
         } else if (active && controller.getPlaybackState() == Player.STATE_BUFFERING) {
-            nowArtist.setText("Connecting…");
+            description = "Connecting…";
         } else if (active) {
-            nowArtist.setText(TextUtils.isEmpty(program) || TextUtils.equals(station, program)
-                    ? "Live radio" : program);
+            description = TextUtils.isEmpty(program) || TextUtils.equals(station, program) ? "Live" : program;
         } else {
-            nowArtist.setText("Live radio · Stopped");
+            description = "Live radio · Stopped";
         }
+        setPlayerDetails(TextUtils.isEmpty(station) ? "Live radio" : station, description);
+    }
+
+    private void setPlayerDetails(CharSequence title, CharSequence subtitle) {
+        nowTitle.setText(title);
+        nowArtist.setText(subtitle);
+        miniTitle.setText(title);
+        miniSubtitle.setText(subtitle);
+        miniDetails.setContentDescription("Open Now Playing. " + title + ". " + subtitle);
+    }
+
+    private void setPlayLabel(String label, String description) {
+        playPause.setText(label);
+        playPause.setContentDescription(description);
+        miniPlay.setText(label);
+        miniPlay.setContentDescription(description);
     }
 
     private boolean tuningOrPlaying() {
@@ -871,14 +1017,36 @@ public final class MainActivity extends Activity implements Player.Listener {
         MediaItem item = controller == null ? null : controller.getCurrentMediaItem();
         if (item == null || RadioStream.isStation(item.mediaId)) return;
         long total = Math.max(0, controller.getDuration());
-        long elapsed = Math.max(0, controller.getCurrentPosition());
         duration.setText(time(total));
         seek.setEnabled(total > 0 && controller.isCurrentMediaItemSeekable());
-        if (!seeking) {
-            position.setText(time(elapsed));
+        if (!seekingCurrentItem()) {
+            long elapsed = Math.max(0, controller.getCurrentPosition());
             seek.setMax((int) Math.min(Integer.MAX_VALUE, Math.max(1, total)));
-            seek.setProgress((int) Math.min(Integer.MAX_VALUE, elapsed));
+            previewSeek((int) Math.min(seek.getMax(), elapsed));
         }
+    }
+
+    private boolean seekingCurrentItem() {
+        MediaItem item = controller == null ? null : controller.getCurrentMediaItem();
+        return item != null && item.mediaId.equals(seekingMediaId);
+    }
+
+    private void startSeek() {
+        MediaItem item = controller == null ? null : controller.getCurrentMediaItem();
+        seekingMediaId = item == null ? null : item.mediaId;
+    }
+
+    private void previewSeek(int milliseconds) {
+        seek.setProgress(milliseconds);
+        position.setText(time(milliseconds));
+        playerArtwork.setProgress((float) milliseconds / seek.getMax(), seek.isEnabled());
+    }
+
+    private void finishSeek(boolean commit) {
+        boolean valid = seekingCurrentItem();
+        seekingMediaId = null;
+        if (commit && valid && seek.isEnabled()) controller.seekTo(seek.getProgress());
+        updateProgress();
     }
 
     private record Row(String title, String subtitle, LibraryStore.Track track,
@@ -928,12 +1096,15 @@ public final class MainActivity extends Activity implements Player.Listener {
 
         void setRow(Row row) {
             title.setText(row.title());
-            subtitle.setText(row.subtitle());
             MediaItem current = controller == null ? null : controller.getCurrentMediaItem();
             String mediaId = row.station() != null ? RadioStream.mediaId(row.station().id())
                     : row.track() == null ? null : row.track().id();
             boolean active = current != null && current.mediaId.equals(mediaId);
+            boolean live = row.station() != null && active && controller.isPlaying();
+            subtitle.setText(live ? "Live · " + row.subtitle() : row.subtitle());
+            title.setTextColor(active ? ACCENT : TEXT);
             icon.setText(active ? "▶" : row.station() != null ? "◉" : row.track() == null ? "≡" : "♪");
+            icon.setTextColor(live ? SOLAR : ACCENT);
             options.setContentDescription("Options for " + row.title());
             options.setOnClickListener(view -> {
                 if (row.station() != null) showStationMenu(view, row.station());
@@ -1004,6 +1175,12 @@ public final class MainActivity extends Activity implements Player.Listener {
         shape.setColor(color);
         shape.setCornerRadius(dp(radius));
         return shape;
+    }
+
+    private GradientDrawable outlined(int color, int radius) {
+        GradientDrawable drawable = shape(color, radius);
+        drawable.setStroke(dp(1), OUTLINE);
+        return drawable;
     }
 
     private void margin(LinearLayout parent, View view, int top, int height) {
