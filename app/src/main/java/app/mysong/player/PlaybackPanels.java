@@ -177,8 +177,8 @@ final class PlaybackPanels {
             line.setTextSize(17);
             line.setText(getItem(position).text());
             line.setTypeface(null, position == active ? Typeface.BOLD : Typeface.NORMAL);
-            line.setTextColor(position == active ? 0xffe3d9ff : 0xffc4bdce);
-            line.setBackgroundColor(position == active ? 0xff392f52 : 0x00000000);
+            line.setTextColor(position == active ? 0xffa31628 : 0xff171717);
+            line.setBackgroundColor(position == active ? 0xfff6e4e5 : 0x00000000);
             return line;
         }
     }

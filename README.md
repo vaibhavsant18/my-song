@@ -18,6 +18,8 @@ An Android music player for audio files on your phone and live internet radio. T
 - **Now Playing.** Tap the track name in the mini-player to open the full player. Touch or drag the orbital progress ring or use the slider to seek. Open **Queue** to jump to a track or clear upcoming songs. The player also supports background playback, Android media controls, shuffle, and repeat.
 - **Live radio.** Open **Live → Add station**, give it a name, and paste a direct HTTPS MP3 or AAC stream URL, or an HLS `.m3u8` link. Tap the saved station to listen and use **Stop radio** to disconnect. Live radio uses an internet connection. Your imported music stays playable offline.
 
+Dot & Line uses [Bitcount Prop Single](https://fonts.google.com/specimen/Bitcount+Prop+Single) for headings, distributed under the [SIL Open Font License](app/src/main/assets/licenses/bitcount-ofl.txt).
+
 ## Build
 
 Use JDK 17 or newer and Android SDK Platform 37.0. Run `./gradlew :app:assembleRelease` on macOS or Linux, or `gradlew.bat :app:assembleRelease` on Windows. The unsigned release APK is written to `app/build/outputs/apk/release/`. Sign it with your own key using Android SDK Build Tools. Keep the same key for future updates to an installed copy.

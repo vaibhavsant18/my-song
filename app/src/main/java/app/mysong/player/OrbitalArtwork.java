@@ -2,18 +2,14 @@ package app.mysong.player;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.RadialGradient;
+import android.graphics.Path;
 import android.graphics.RectF;
-import android.graphics.Shader;
 import android.view.MotionEvent;
 import android.view.View;
 
-import java.util.Random;
-
-@SuppressLint("ViewConstructor") // Created in code with the activity's shared planet bitmap.
+@SuppressLint("ViewConstructor") // Each illustration is created in code with its initial scene.
 final class OrbitalArtwork extends View {
     enum Scene { CONSTELLATION, PLANET, RADIO }
 
@@ -23,43 +19,34 @@ final class OrbitalArtwork extends View {
         void onFinish(boolean commit);
     }
 
-    private static final int ICE = 0xff9ee4ff;
-    private static final int SUN = 0xffffae77;
+    private static final int INK = 0xff171717;
+    private static final int RED = 0xffc61c31;
+    private static final int GRID = 0xffd9d5ce;
+    private static final int GUIDE = 0xffaaa59e;
     private static final float ARC_START = 120;
     private static final float ARC_SWEEP = 300;
     private static final int ORBIT_RADIUS = 87;
+    private static final int PLANET_RADIUS = 69;
     private static final int[][] CONSTELLATION = {{-130, 15}, {-101, -18}, {-67, -10},
             {-45, -31}, {-23, -6}, {-58, 23}, {-89, 25}};
     private static final int[][] SIGNALS = {{-47, -33}, {39, -17}, {62, -54}};
 
-    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path planetDots = planetDots();
     private final RectF bounds = new RectF();
-    private final float[][] stars = new float[118][3];
-    private final Shader blueGlow = new RadialGradient(0, 0, 108,
-            new int[]{0xff264159, 0xff1c293d, 0x00171e39}, new float[]{0, .40f, 1}, Shader.TileMode.CLAMP);
-    private final Shader planetGlow = new RadialGradient(0, 0, 113,
-            new int[]{0xff5d3454, 0xff302340, 0x001c213a}, new float[]{0, .57f, 1}, Shader.TileMode.CLAMP);
     private final float density;
     private Scene scene;
-    private final Bitmap planet;
     private ScrubListener scrubListener;
     private boolean scrubbable;
     private boolean signalActive;
     private float fraction;
     private int pointerId = -1;
 
-    OrbitalArtwork(Context context, Scene scene, Bitmap planet) {
+    OrbitalArtwork(Context context, Scene scene) {
         super(context);
         this.scene = scene;
-        this.planet = planet;
         density = getResources().getDisplayMetrics().density;
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        Random random = new Random(718);
-        for (float[] star : stars) {
-            star[0] = random.nextFloat();
-            star[1] = random.nextFloat();
-            star[2] = random.nextFloat();
-        }
     }
 
     void setScene(Scene scene) {
@@ -88,13 +75,6 @@ final class OrbitalArtwork extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        canvas.drawColor(0xff10101b);
-        for (float[] star : stars) {
-            float brightness = star[2];
-            fill(((int) (35 + brightness * brightness * 155) << 24) | 0xafd8ff);
-            canvas.drawCircle(star[0] * getWidth(), star[1] * getHeight(),
-                    density * (0.27f + 0.68f * brightness), paint);
-        }
         canvas.save();
         if (scene == Scene.PLANET) {
             canvas.translate(getWidth() / 2f, getHeight() / 2f);
@@ -105,11 +85,13 @@ final class OrbitalArtwork extends View {
             canvas.translate(getWidth() / 2f, getHeight() / 2f);
             float scale = Math.min(getWidth() / 285f, getHeight() / 102f);
             canvas.scale(scale, scale);
+            drawGrid(canvas, 132, -40, 40);
             drawConstellation(canvas);
         } else {
             canvas.translate(getWidth() / 2f, getHeight() * .82f);
             float scale = Math.min(getWidth() / 202f, getHeight() / 112f);
             canvas.scale(scale, scale);
+            drawGrid(canvas, 92, -88, 8);
             drawRadio(canvas);
         }
         canvas.restore();
@@ -120,12 +102,11 @@ final class OrbitalArtwork extends View {
     }
 
     private void drawPlanet(Canvas canvas) {
-        glow(canvas, planetGlow, 113);
-        disc(canvas, 69);
-
-        stroke(0xff343850, 1.5f);
+        drawSphere(canvas, PLANET_RADIUS);
+        stroke(INK, .9f);
         bounds.set(-ORBIT_RADIUS, -ORBIT_RADIUS, ORBIT_RADIUS, ORBIT_RADIUS);
         canvas.drawArc(bounds, ARC_START, ARC_SWEEP, false, paint);
+        stroke(GUIDE, .75f);
         for (int angle = 0; angle <= ARC_SWEEP; angle += 15) {
             double radians = Math.toRadians(ARC_START + angle);
             float x = (float) Math.cos(radians);
@@ -135,34 +116,31 @@ final class OrbitalArtwork extends View {
         }
         if (!scrubbable) return;
         float sweep = ARC_SWEEP * fraction;
-        stroke(0x409ee4ff, 7);
-        canvas.drawArc(bounds, ARC_START, sweep, false, paint);
-        stroke(ICE, 2.8f);
+        stroke(RED, 2);
         canvas.drawArc(bounds, ARC_START, sweep, false, paint);
         double angle = Math.toRadians(ARC_START + sweep);
         float x = (float) Math.cos(angle) * ORBIT_RADIUS;
         float y = (float) Math.sin(angle) * ORBIT_RADIUS;
-        fill(0xfff0fbff);
-        canvas.drawCircle(x, y, 4.4f, paint);
+        fill(RED);
+        canvas.drawCircle(x, y, 4, paint);
     }
 
     private void drawConstellation(Canvas canvas) {
         canvas.save();
         canvas.translate(72, 12);
-        glow(canvas, planetGlow, 113);
         canvas.save();
         canvas.rotate(-22);
-        stroke(0x5b9ee4ff, .8f);
+        stroke(GUIDE, .75f);
         canvas.drawOval(-69, -16, 69, 16, paint);
         canvas.restore();
-        disc(canvas, 38);
+        drawSphere(canvas, 38);
         canvas.rotate(-22);
-        stroke(0x9f9ee4ff, .9f);
+        stroke(INK, .9f);
         bounds.set(-69, -16, 69, 16);
         canvas.drawArc(bounds, 0, 180, false, paint);
         canvas.restore();
 
-        stroke(0x919ee4ff, .72f);
+        stroke(INK, .75f);
         for (int i = 1; i < CONSTELLATION.length; i++) {
             int[] before = CONSTELLATION[i - 1];
             int[] after = CONSTELLATION[i];
@@ -170,55 +148,69 @@ final class OrbitalArtwork extends View {
         }
         for (int i = 0; i < CONSTELLATION.length; i++) {
             int[] star = CONSTELLATION[i];
-            drawStar(canvas, star[0], star[1], i % 3 == 0 ? SUN : ICE);
+            fill(i == 3 ? RED : INK);
+            canvas.drawCircle(star[0], star[1], i == 3 ? 2.5f : 1.65f, paint);
         }
     }
 
     private void drawRadio(Canvas canvas) {
-        glow(canvas, blueGlow, 108);
         for (int radius = 22; radius <= 88; radius += 22) {
-            stroke(radius == 88 ? 0x839ee4ff : 0x4c9ee4ff, .75f);
+            stroke(radius == 88 ? INK : GUIDE, .75f);
             bounds.set(-radius, -radius, radius, radius);
             canvas.drawArc(bounds, 180, 180, false, paint);
         }
-        stroke(0x509ee4ff, .75f);
+        stroke(GUIDE, .65f);
         canvas.drawLine(-91, 0, 91, 0, paint);
         for (int i = -60; i <= 60; i += 30) {
             double radians = Math.toRadians(i);
             canvas.drawLine(0, 0, 88 * (float) Math.sin(radians),
                     -88 * (float) Math.cos(radians), paint);
         }
-        bounds.set(-87, -87, 87, 87);
-        fill(signalActive ? 0x2d9ee4ff : 0x159ee4ff);
-        canvas.drawArc(bounds, -82, 31, true, paint);
-        stroke(signalActive ? ICE : 0x879ee4ff, 1);
-        canvas.drawLine(0, 0, 55, -68, paint);
+        stroke(signalActive ? RED : INK, 1);
+        canvas.drawLine(0, 0, 66, -57, paint);
         for (int i = 0; i < SIGNALS.length; i++) {
             int[] signal = SIGNALS[i];
-            drawStar(canvas, signal[0], signal[1], signalActive && i == 2 ? SUN : ICE);
+            fill(signalActive && i == 2 ? RED : INK);
+            canvas.drawCircle(signal[0], signal[1], i == 2 ? 2.8f : 1.7f, paint);
         }
     }
 
-    private void disc(Canvas canvas, float radius) {
-        bounds.set(-radius, -radius, radius, radius);
-        fill(0xffffffff);
-        canvas.drawBitmap(planet, null, bounds, paint);
-        stroke(0x55967ea3, .7f);
+    private void drawSphere(Canvas canvas, float radius) {
+        fill(0xfffbfaf7);
+        canvas.drawCircle(0, 0, radius, paint);
+        canvas.save();
+        float scale = radius / PLANET_RADIUS;
+        canvas.scale(scale, scale);
+        fill(INK);
+        canvas.drawPath(planetDots, paint);
+        canvas.restore();
+        stroke(GUIDE, .65f);
         canvas.drawCircle(0, 0, radius, paint);
     }
 
-    private void glow(Canvas canvas, Shader shader, float radius) {
-        fill(0xffffffff);
-        paint.setShader(shader);
-        canvas.drawCircle(0, 0, radius, paint);
-        paint.setShader(null);
+    private static Path planetDots() {
+        Path dots = new Path();
+        for (int y = -64; y <= 64; y += 4) {
+            for (int x = -64; x <= 64; x += 4) {
+                float nx = (float) x / PLANET_RADIUS;
+                float ny = (float) y / PLANET_RADIUS;
+                float distance = nx * nx + ny * ny;
+                if (distance > .94f) continue;
+                float depth = (float) Math.sqrt(1 - distance);
+                float light = Math.max(0, -.66f * nx - .29f * ny + .64f * depth);
+                dots.addCircle(x, y, .35f + 1.25f * light, Path.Direction.CW);
+            }
+        }
+        return dots;
     }
 
-    private void drawStar(Canvas canvas, float x, float y, int color) {
-        fill((color & 0x00ffffff) | 0x31000000);
-        canvas.drawCircle(x, y, 4, paint);
-        fill(color);
-        canvas.drawCircle(x, y, 1.65f, paint);
+    private void drawGrid(Canvas canvas, int halfWidth, int top, int bottom) {
+        fill(GRID);
+        for (int y = top; y <= bottom; y += 8) {
+            for (int x = -halfWidth; x <= halfWidth; x += 8) {
+                canvas.drawCircle(x, y, .55f, paint);
+            }
+        }
     }
 
     private void fill(int color) {

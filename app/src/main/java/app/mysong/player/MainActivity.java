@@ -7,10 +7,10 @@ import android.content.ClipData;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.res.ColorStateList;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
@@ -72,15 +72,13 @@ public final class MainActivity extends Activity implements Player.Listener {
     private static final int PICK_AUDIO = 100;
     private static final int PICK_FOLDER = 101;
     private static final int PICK_LYRICS = 102;
-    private static final int BACKGROUND = 0xff10101b;
-    private static final int SURFACE = 0xff1b1c2c;
-    private static final int PLAYER_SURFACE = 0xff22243a;
-    private static final int OUTLINE = 0xff383c56;
-    private static final int TEXT = 0xfff6f4f2;
-    private static final int MUTED = 0xffb9bed4;
-    private static final int ACCENT = 0xff9ee4ff;
-    private static final int SOLAR = 0xffffae77;
-    private static final int ON_ACCENT = 0xff101624;
+    private static final int BACKGROUND = 0xfff6f4f0;
+    private static final int SURFACE = 0xfffbfaf7;
+    private static final int PLAYER_SURFACE = 0xffefede8;
+    private static final int OUTLINE = 0xffbcb7b0;
+    private static final int TEXT = 0xff171717;
+    private static final int MUTED = 0xff57534f;
+    private static final int ACCENT = 0xffc61c31;
     private static final ExecutorService FILES = Executors.newSingleThreadExecutor();
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -96,6 +94,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     };
 
     private LibraryStore library;
+    private Typeface displayTypeface;
     private PlaybackPanels playbackPanels;
     private MediaController controller;
     private ListenableFuture<MediaController> controllerFuture;
@@ -149,6 +148,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         library = LibraryStore.get(this);
+        displayTypeface = getResources().getFont(R.font.bitcount_prop_single);
         playbackPanels = new PlaybackPanels(this, library, () -> controller, this::chooseLyrics);
         buildScreen();
         if (state != null) {
@@ -240,19 +240,19 @@ public final class MainActivity extends Activity implements Player.Listener {
         ImageView mark = new ImageView(this);
         mark.setImageResource(R.drawable.ic_mysong);
         header.addView(mark, new LinearLayout.LayoutParams(dp(30), dp(30)));
-        TextView name = text(getString(R.string.app_name), 19, TEXT, true);
+        TextView name = heading(getString(R.string.app_name), 21);
         LinearLayout.LayoutParams title = new LinearLayout.LayoutParams(0, -2, 1);
         title.leftMargin = dp(8);
         header.addView(name, title);
         libraryScreen.addView(header, new LinearLayout.LayoutParams(-1, dp(32)));
 
         LinearLayout section = row();
-        sectionTitle = text("Library", 30, TEXT, true);
+        sectionTitle = heading("Library", 31);
         if (Build.VERSION.SDK_INT >= 28) sectionTitle.setAccessibilityHeading(true);
         section.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1));
-        add = action("+ Add music", ACCENT, ON_ACCENT, this::showImportChoices);
+        add = action("+ Add music", TEXT, Color.WHITE, this::showImportChoices);
         section.addView(add, new LinearLayout.LayoutParams(-2, dp(48)));
-        sectionAction = action("New playlist", ACCENT, ON_ACCENT, () -> {
+        sectionAction = action("New playlist", TEXT, Color.WHITE, () -> {
             if (tab == Tab.LIVE) stationDialog(null);
             else if (openPlaylist == null) playlistName(null, null);
             else showPlaylistMenu(sectionAction, openPlaylist);
@@ -260,13 +260,13 @@ public final class MainActivity extends Activity implements Player.Listener {
         section.addView(sectionAction, new LinearLayout.LayoutParams(-2, dp(48)));
         margin(libraryScreen, section, 10, 48);
 
-        Bitmap planet = BitmapFactory.decodeResource(getResources(), R.drawable.orbital_planet);
-        shelfArtwork = new OrbitalArtwork(this, OrbitalArtwork.Scene.CONSTELLATION, planet);
-        shelfArtwork.setBackground(shape(SURFACE, 18));
-        shelfArtwork.setClipToOutline(true);
+        shelfArtwork = new OrbitalArtwork(this, OrbitalArtwork.Scene.CONSTELLATION);
+        shelfArtwork.setBackground(outlined(SURFACE, 9, OUTLINE));
         margin(libraryScreen, shelfArtwork, 10, 113);
 
         search = field("Search music");
+        search.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0);
+        search.setCompoundDrawablePadding(dp(8));
         margin(libraryScreen, search, 10, 48);
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -281,7 +281,8 @@ public final class MainActivity extends Activity implements Player.Listener {
 
         FrameLayout content = new FrameLayout(this);
         list = new ListView(this);
-        list.setDivider(null);
+        list.setDivider(new ColorDrawable(OUTLINE));
+        list.setDividerHeight(dp(1));
         list.setItemsCanFocus(false);
         list.setClipToPadding(false);
         list.setPadding(0, 0, 0, dp(8));
@@ -304,7 +305,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         margin(libraryScreen, playerCard, 6, -2);
 
         LinearLayout tabs = row();
-        libraryTab = action("Library", ACCENT, ON_ACCENT, () -> changeTab(Tab.LIBRARY));
+        libraryTab = action("Library", SURFACE, TEXT, () -> changeTab(Tab.LIBRARY));
         playlistsTab = action("Playlists", SURFACE, TEXT, () -> changeTab(Tab.PLAYLISTS));
         liveTab = action("Live", SURFACE, TEXT, () -> changeTab(Tab.LIVE));
         for (Button button : new Button[]{libraryTab, playlistsTab, liveTab}) {
@@ -314,7 +315,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         }
         margin(libraryScreen, tabs, 8, 48);
 
-        nowPlayingScreen = buildPlayer(planet);
+        nowPlayingScreen = buildPlayer();
         nowPlayingScreen.setVisibility(View.GONE);
         root.addView(nowPlayingScreen, new FrameLayout.LayoutParams(-1, -1));
         root.requestFocus();
@@ -323,12 +324,12 @@ public final class MainActivity extends Activity implements Player.Listener {
     private LinearLayout buildMiniPlayer() {
         LinearLayout card = row();
         card.setPadding(dp(7), dp(5), dp(7), dp(5));
-        card.setBackground(outlined(PLAYER_SURFACE, 16));
+        card.setBackground(outlined(PLAYER_SURFACE, 10, TEXT));
         miniDetails = row();
         LinearLayout details = miniDetails;
         details.setOnClickListener(view -> showPlayer(true));
         details.setFocusable(true);
-        details.setBackground(new RippleDrawable(ColorStateList.valueOf(0x28ffffff),
+        details.setBackground(new RippleDrawable(ColorStateList.valueOf(0x18000000),
                 shape(PLAYER_SURFACE, 9), null));
         details.setMinimumHeight(dp(50));
         details.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
@@ -346,7 +347,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         captionParams.setMarginStart(dp(8));
         details.addView(captions, captionParams);
         card.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
-        miniPlay = action("▶", ACCENT, ON_ACCENT, this::togglePlayback);
+        miniPlay = action("▶", TEXT, Color.WHITE, this::togglePlayback);
         miniPlay.setMinWidth(dp(48));
         LinearLayout.LayoutParams controlParams = new LinearLayout.LayoutParams(-2, dp(48));
         controlParams.setMarginStart(dp(8));
@@ -354,7 +355,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         return card;
     }
 
-    private ScrollView buildPlayer(Bitmap planet) {
+    private ScrollView buildPlayer() {
         ScrollView screen = new ScrollView(this);
         screen.setFillViewport(true);
         if (Build.VERSION.SDK_INT >= 28) screen.setAccessibilityPaneTitle("Now playing");
@@ -362,20 +363,19 @@ public final class MainActivity extends Activity implements Player.Listener {
         screen.addView(card, new ScrollView.LayoutParams(-1, -2));
 
         LinearLayout header = row();
-        closePlayer = action("⌄", SURFACE, ACCENT, () -> showPlayer(false));
+        closePlayer = action("⌄", SURFACE, TEXT, () -> showPlayer(false));
         closePlayer.setTextSize(25);
         closePlayer.setContentDescription("Close Now Playing");
         header.addView(closePlayer, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        playerHeading = text("Now playing", 16, TEXT, true);
+        playerHeading = heading("Now playing", 22);
         playerHeading.setGravity(Gravity.CENTER);
         if (Build.VERSION.SDK_INT >= 28) playerHeading.setAccessibilityHeading(true);
         header.addView(playerHeading, new LinearLayout.LayoutParams(0, -2, 1));
         header.addView(new View(this), new LinearLayout.LayoutParams(dp(48), dp(1)));
         card.addView(header, new LinearLayout.LayoutParams(-1, dp(48)));
 
-        playerArtwork = new OrbitalArtwork(this, OrbitalArtwork.Scene.PLANET, planet);
-        playerArtwork.setBackground(shape(SURFACE, 24));
-        playerArtwork.setClipToOutline(true);
+        playerArtwork = new OrbitalArtwork(this, OrbitalArtwork.Scene.PLANET);
+        playerArtwork.setBackground(outlined(SURFACE, 9, OUTLINE));
         playerArtwork.setScrubListener(new OrbitalArtwork.ScrubListener() {
             @Override public void onStart() { startSeek(); }
             @Override public void onPosition(float fraction) {
@@ -404,6 +404,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         seek.setContentDescription("Playback position");
         seek.setProgressTintList(ColorStateList.valueOf(ACCENT));
         seek.setThumbTintList(ColorStateList.valueOf(ACCENT));
+        seek.setProgressBackgroundTintList(ColorStateList.valueOf(OUTLINE));
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onStartTrackingTouch(SeekBar bar) { startSeek(); }
             @Override public void onProgressChanged(SeekBar bar, int value, boolean fromUser) {
@@ -424,7 +425,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         previous = action("|◀", PLAYER_SURFACE, TEXT, () -> {
             if (controller != null) controller.seekToPrevious();
         });
-        playPause = action("▶", SOLAR, ON_ACCENT, this::togglePlayback);
+        playPause = action("▶", ACCENT, Color.WHITE, this::togglePlayback);
         next = action("▶|", PLAYER_SURFACE, TEXT, () -> {
             if (controller != null) controller.seekToNextMediaItem();
         });
@@ -444,8 +445,8 @@ public final class MainActivity extends Activity implements Player.Listener {
         margin(card, controls, 8, -2);
 
         trackActions = row();
-        queue = action("Queue", SURFACE, ACCENT, playbackPanels::showQueue);
-        lyrics = action("Lyrics", SURFACE, ACCENT, playbackPanels::showLyrics);
+        queue = action("Queue", SURFACE, TEXT, playbackPanels::showQueue);
+        lyrics = action("Lyrics", SURFACE, TEXT, playbackPanels::showLyrics);
         trackActions.addView(queue, new LinearLayout.LayoutParams(0, dp(48), 1));
         LinearLayout.LayoutParams lyricsParams = new LinearLayout.LayoutParams(0, dp(48), 1);
         lyricsParams.setMarginStart(dp(8));
@@ -682,7 +683,8 @@ public final class MainActivity extends Activity implements Player.Listener {
     }
 
     private void styleTab(Button button, boolean selected) {
-        setButtonStyle(button, selected ? ACCENT : SURFACE, selected ? ON_ACCENT : TEXT);
+        setButtonStyle(button, selected ? PLAYER_SURFACE : SURFACE, selected ? ACCENT : TEXT);
+        button.setTypeface(selected ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         button.setSelected(selected);
     }
 
@@ -986,7 +988,8 @@ public final class MainActivity extends Activity implements Player.Listener {
         } else if (active && controller.getPlaybackState() == Player.STATE_BUFFERING) {
             description = "Connecting…";
         } else if (active) {
-            description = TextUtils.isEmpty(program) || TextUtils.equals(station, program) ? "Live" : program;
+            description = TextUtils.isEmpty(program) || TextUtils.equals(station, program)
+                    ? "On air" : "On air · " + program;
         } else {
             description = "Live radio · Stopped";
         }
@@ -1066,7 +1069,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     }
 
     private final class RowView extends LinearLayout {
-        private final TextView icon;
+        private final ImageView icon;
         private final TextView title;
         private final TextView subtitle;
         private final Button options;
@@ -1076,10 +1079,10 @@ public final class MainActivity extends Activity implements Player.Listener {
             setGravity(Gravity.CENTER_VERTICAL);
             setMinimumHeight(dp(62));
             setPadding(dp(2), dp(4), 0, dp(4));
-            icon = text("", 21, ACCENT, true);
-            icon.setGravity(Gravity.CENTER);
+            icon = new ImageView(MainActivity.this);
             icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-            icon.setBackground(shape(SURFACE, 11));
+            icon.setPadding(dp(9), dp(9), dp(9), dp(9));
+            icon.setBackground(outlined(SURFACE, 8, OUTLINE));
             addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
             LinearLayout captions = column();
             title = text("", 16, TEXT, true);
@@ -1089,7 +1092,7 @@ public final class MainActivity extends Activity implements Player.Listener {
             LinearLayout.LayoutParams middle = new LinearLayout.LayoutParams(0, -2, 1);
             middle.leftMargin = dp(12);
             addView(captions, middle);
-            options = action("⋮", BACKGROUND, MUTED, () -> {});
+            options = action("⋮", Color.TRANSPARENT, MUTED, () -> {});
             options.setFocusable(false);
             addView(options, new LinearLayout.LayoutParams(dp(48), dp(48)));
         }
@@ -1101,10 +1104,12 @@ public final class MainActivity extends Activity implements Player.Listener {
                     : row.track() == null ? null : row.track().id();
             boolean active = current != null && current.mediaId.equals(mediaId);
             boolean live = row.station() != null && active && controller.isPlaying();
-            subtitle.setText(live ? "Live · " + row.subtitle() : row.subtitle());
+            subtitle.setText(live ? "On air · " + row.subtitle() : row.subtitle());
             title.setTextColor(active ? ACCENT : TEXT);
-            icon.setText(active ? "▶" : row.station() != null ? "◉" : row.track() == null ? "≡" : "♪");
-            icon.setTextColor(live ? SOLAR : ACCENT);
+            int artwork = row.track() != null ? R.drawable.ic_track
+                    : row.station() != null ? R.drawable.ic_station : R.drawable.ic_playlist;
+            icon.setImageResource(artwork);
+            icon.setColorFilter(active ? ACCENT : TEXT);
             options.setContentDescription("Options for " + row.title());
             options.setOnClickListener(view -> {
                 if (row.station() != null) showStationMenu(view, row.station());
@@ -1137,6 +1142,12 @@ public final class MainActivity extends Activity implements Player.Listener {
         return view;
     }
 
+    private TextView heading(CharSequence value, int size) {
+        TextView view = text(value, size, TEXT, true);
+        view.setTypeface(displayTypeface);
+        return view;
+    }
+
     private EditText field(String hint) {
         EditText view = new EditText(this);
         view.setSingleLine(true);
@@ -1145,7 +1156,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         view.setTextColor(TEXT);
         view.setHintTextColor(MUTED);
         view.setPadding(dp(14), 0, dp(12), 0);
-        view.setBackground(shape(SURFACE, 12));
+        view.setBackground(outlined(SURFACE, 8, TEXT));
         view.setSelectAllOnFocus(false);
         return view;
     }
@@ -1159,15 +1170,23 @@ public final class MainActivity extends Activity implements Player.Listener {
         button.setMinimumHeight(0);
         button.setMinWidth(0);
         button.setMinHeight(0);
-        button.setPadding(dp(5), 0, dp(5), 0);
+        button.setPadding(dp(7), 0, dp(7), 0);
+        button.setStateListAnimator(null);
         setButtonStyle(button, background, foreground);
         button.setOnClickListener(view -> callback.run());
         return button;
     }
 
     private void setButtonStyle(Button button, int background, int foreground) {
-        button.setTextColor(foreground);
-        button.setBackground(new RippleDrawable(ColorStateList.valueOf(0x28ffffff), shape(background, 13), null));
+        button.setTextColor(new ColorStateList(new int[][]{
+                {-android.R.attr.state_enabled}, {}
+        }, new int[]{MUTED, foreground}));
+        boolean filled = background == ACCENT || background == TEXT;
+        GradientDrawable surface = filled || background == Color.TRANSPARENT
+                ? shape(background, 8) : outlined(background, 8, TEXT);
+        int ripple = filled ? 0x38ffffff : 0x1c000000;
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(ripple), surface,
+                shape(Color.WHITE, 8)));
     }
 
     private GradientDrawable shape(int color, int radius) {
@@ -1177,9 +1196,9 @@ public final class MainActivity extends Activity implements Player.Listener {
         return shape;
     }
 
-    private GradientDrawable outlined(int color, int radius) {
+    private GradientDrawable outlined(int color, int radius, int lineColor) {
         GradientDrawable drawable = shape(color, radius);
-        drawable.setStroke(dp(1), OUTLINE);
+        drawable.setStroke(dp(1), lineColor);
         return drawable;
     }
 
