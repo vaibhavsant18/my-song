@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 final class LibraryStore extends SQLiteOpenHelper {
     record Track(String id, String title, String artist, String album, long duration) {}
     record Playlist(long id, String name, int count) {}
+    record Station(long id, String name, String url) {}
 
     private static final char[] HEX = "0123456789abcdef".toCharArray();
     private static LibraryStore instance;
@@ -39,7 +40,7 @@ final class LibraryStore extends SQLiteOpenHelper {
     }
 
     private LibraryStore(Context context) {
-        super(context, "my-song.db", null, 2);
+        super(context, "my-song.db", null, 3);
         audioDirectory = new File(context.getFilesDir(), "audio");
     }
 
@@ -57,15 +58,52 @@ final class LibraryStore extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE entries (playlist INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE, "
                 + "track TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE, UNIQUE (playlist, track))");
         db.execSQL("CREATE INDEX entries_track ON entries(track)");
+        createStations(db);
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int from, int to) {
-        if (from == 1 && to == 2) {
-            db.execSQL("ALTER TABLE tracks ADD COLUMN lyrics TEXT");
-            return;
+        if (from < 2) db.execSQL("ALTER TABLE tracks ADD COLUMN lyrics TEXT");
+        if (from < 3) createStations(db);
+    }
+
+    private static void createStations(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE stations (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                + "name TEXT NOT NULL, url TEXT NOT NULL UNIQUE)");
+    }
+
+    List<Station> stations() {
+        List<Station> stations = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().query("stations", new String[]{"id", "name", "url"},
+                null, null, null, null, "name COLLATE NOCASE, id")) {
+            while (cursor.moveToNext()) {
+                stations.add(new Station(cursor.getLong(0), cursor.getString(1), cursor.getString(2)));
+            }
         }
-        throw new IllegalStateException("Missing database migration from " + from + " to " + to);
+        return stations;
+    }
+
+    Station station(long id) {
+        try (Cursor cursor = getReadableDatabase().query("stations", new String[]{"id", "name", "url"},
+                "id=?", new String[]{Long.toString(id)}, null, null, null)) {
+            return cursor.moveToFirst() ? new Station(cursor.getLong(0), cursor.getString(1), cursor.getString(2)) : null;
+        }
+    }
+
+    boolean saveStation(Station previous, String name, String url) {
+        ContentValues values = new ContentValues();
+        values.put("name", name);
+        values.put("url", url);
+        SQLiteDatabase db = getWritableDatabase();
+        if (previous == null) {
+            return db.insertWithOnConflict("stations", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1;
+        }
+        return db.updateWithOnConflict("stations", values, "id=?", new String[]{Long.toString(previous.id())},
+                SQLiteDatabase.CONFLICT_IGNORE) == 1;
+    }
+
+    void deleteStation(long id) {
+        getWritableDatabase().delete("stations", "id=?", new String[]{Long.toString(id)});
     }
 
     String lyrics(String track) {

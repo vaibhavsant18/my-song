@@ -18,6 +18,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
 import android.text.InputFilter;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -48,6 +49,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -61,6 +63,8 @@ import java.util.concurrent.Executors;
 
 @UnstableApi
 public final class MainActivity extends Activity implements Player.Listener {
+    private enum Tab { LIBRARY, PLAYLISTS, LIVE }
+
     private static final int PICK_AUDIO = 100;
     private static final int PICK_FOLDER = 101;
     private static final int PICK_LYRICS = 102;
@@ -89,7 +93,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     private PlaybackPanels playbackPanels;
     private MediaController controller;
     private ListenableFuture<MediaController> controllerFuture;
-    private boolean playlistTab;
+    private Tab tab = Tab.LIBRARY;
     private LibraryStore.Playlist openPlaylist;
     private List<LibraryStore.Track> visibleTracks = Collections.emptyList();
     private int shownTrackRevision;
@@ -100,6 +104,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     private Button add;
     private Button libraryTab;
     private Button playlistsTab;
+    private Button liveTab;
     private Button sectionAction;
     private TextView sectionTitle;
     private TextView status;
@@ -108,6 +113,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     private ListView list;
     private RowAdapter adapter;
     private LinearLayout playerCard;
+    private LinearLayout timeline;
     private TextView nowTitle;
     private TextView nowArtist;
     private TextView position;
@@ -118,6 +124,8 @@ public final class MainActivity extends Activity implements Player.Listener {
     private Button next;
     private Button shuffle;
     private Button repeat;
+    private Button lyrics;
+    private Button queue;
 
     @Override
     public void onCreate(Bundle state) {
@@ -126,7 +134,8 @@ public final class MainActivity extends Activity implements Player.Listener {
         playbackPanels = new PlaybackPanels(this, library, () -> controller, this::chooseLyrics);
         buildScreen();
         if (state != null) {
-            playlistTab = state.getBoolean("playlistTab");
+            Tab previousTab = state.getBoolean("playlistTab") ? Tab.PLAYLISTS : Tab.LIBRARY;
+            tab = Tab.valueOf(state.getString("tab", previousTab.name()));
             pendingLyricsTrack = state.getString("pendingLyricsTrack");
             long id = state.getLong("playlistId", -1);
             if (id != -1) {
@@ -141,7 +150,7 @@ public final class MainActivity extends Activity implements Player.Listener {
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
-        state.putBoolean("playlistTab", playlistTab);
+        state.putString("tab", tab.name());
         state.putLong("playlistId", openPlaylist == null ? -1 : openPlaylist.id());
         state.putString("search", search.getText().toString());
         state.putString("pendingLyricsTrack", pendingLyricsTrack);
@@ -213,7 +222,7 @@ public final class MainActivity extends Activity implements Player.Listener {
         root.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
         search = field("Search songs, artists, albums");
-        search.setContentDescription("Search music or playlists");
+        search.setContentDescription("Search");
         margin(root, search, 14, 48);
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -222,12 +231,14 @@ public final class MainActivity extends Activity implements Player.Listener {
         });
 
         LinearLayout tabs = row();
-        libraryTab = action("Library", ACCENT, ON_ACCENT, () -> changeTab(false));
-        playlistsTab = action("Playlists", SURFACE, TEXT, () -> changeTab(true));
-        tabs.addView(libraryTab, new LinearLayout.LayoutParams(0, dp(46), 1));
-        LinearLayout.LayoutParams playlistTabParams = new LinearLayout.LayoutParams(0, dp(46), 1);
-        playlistTabParams.leftMargin = dp(8);
-        tabs.addView(playlistsTab, playlistTabParams);
+        libraryTab = action("Library", ACCENT, ON_ACCENT, () -> changeTab(Tab.LIBRARY));
+        playlistsTab = action("Playlists", SURFACE, TEXT, () -> changeTab(Tab.PLAYLISTS));
+        liveTab = action("Live", SURFACE, TEXT, () -> changeTab(Tab.LIVE));
+        for (Button button : new Button[]{libraryTab, playlistsTab, liveTab}) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(46), 1);
+            if (button != libraryTab) params.leftMargin = dp(8);
+            tabs.addView(button, params);
+        }
         margin(root, tabs, 10, 46);
 
         LinearLayout section = row();
@@ -236,7 +247,8 @@ public final class MainActivity extends Activity implements Player.Listener {
         sectionTitle.setEllipsize(TextUtils.TruncateAt.END);
         section.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1));
         sectionAction = action("New playlist", SURFACE, ACCENT, () -> {
-            if (openPlaylist == null) playlistName(null, null);
+            if (tab == Tab.LIVE) stationDialog(null);
+            else if (openPlaylist == null) playlistName(null, null);
             else showPlaylistMenu(sectionAction, openPlaylist);
         });
         section.addView(sectionAction, new LinearLayout.LayoutParams(-2, dp(48)));
@@ -287,13 +299,13 @@ public final class MainActivity extends Activity implements Player.Listener {
         LinearLayout.LayoutParams captionParams = new LinearLayout.LayoutParams(0, -2, 1);
         captionParams.leftMargin = dp(10);
         track.addView(captions, captionParams);
-        Button lyrics = action("Lyrics", PLAYER_SURFACE, ACCENT, playbackPanels::showLyrics);
-        Button queue = action("Queue", PLAYER_SURFACE, ACCENT, playbackPanels::showQueue);
+        lyrics = action("Lyrics", PLAYER_SURFACE, ACCENT, playbackPanels::showLyrics);
+        queue = action("Queue", PLAYER_SURFACE, ACCENT, playbackPanels::showQueue);
         track.addView(lyrics, new LinearLayout.LayoutParams(-2, dp(48)));
         track.addView(queue, new LinearLayout.LayoutParams(-2, dp(48)));
         card.addView(track);
 
-        LinearLayout timeline = row();
+        timeline = row();
         position = text("0:00", 12, MUTED, false);
         duration = text("0:00", 12, MUTED, false);
         duration.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
@@ -473,15 +485,15 @@ public final class MainActivity extends Activity implements Player.Listener {
         });
     }
 
-    private void changeTab(boolean playlists) {
-        playlistTab = playlists;
+    private void changeTab(Tab selected) {
+        tab = selected;
         openPlaylist = null;
         resetSearch();
     }
 
     @Override
     public void onBackPressed() {
-        if (openPlaylist != null) changeTab(true);
+        if (openPlaylist != null) changeTab(Tab.PLAYLISTS);
         else super.onBackPressed();
     }
 
@@ -494,25 +506,36 @@ public final class MainActivity extends Activity implements Player.Listener {
 
     private void refreshLibrary() {
         shownTrackRevision = library.trackRevision();
-        boolean playlistIndex = playlistTab && openPlaylist == null;
+        boolean live = tab == Tab.LIVE;
+        boolean playlistIndex = tab == Tab.PLAYLISTS && openPlaylist == null;
         boolean inPlaylist = openPlaylist != null;
-        setButtonStyle(libraryTab, !playlistTab ? ACCENT : SURFACE, !playlistTab ? ON_ACCENT : TEXT);
-        setButtonStyle(playlistsTab, playlistTab ? ACCENT : SURFACE, playlistTab ? ON_ACCENT : TEXT);
-        libraryTab.setSelected(!playlistTab);
-        playlistsTab.setSelected(playlistTab);
-        sectionTitle.setText(inPlaylist ? openPlaylist.name() : playlistIndex ? "Your playlists" : "All songs");
-        sectionAction.setVisibility(playlistTab ? View.VISIBLE : View.GONE);
-        sectionAction.setText(inPlaylist ? "Playlist options" : "New playlist");
-        search.setHint(playlistIndex ? "Search playlists" : "Search songs, artists, albums");
+        styleTab(libraryTab, tab == Tab.LIBRARY);
+        styleTab(playlistsTab, tab == Tab.PLAYLISTS);
+        styleTab(liveTab, live);
+        add.setVisibility(live ? View.GONE : View.VISIBLE);
+        sectionTitle.setText(live ? "Live radio" : inPlaylist ? openPlaylist.name()
+                : playlistIndex ? "Your playlists" : "All songs");
+        sectionAction.setVisibility(tab == Tab.LIBRARY ? View.GONE : View.VISIBLE);
+        sectionAction.setText(live ? "Add station" : inPlaylist ? "Playlist options" : "New playlist");
+        search.setHint(live ? "Search stations" : playlistIndex ? "Search playlists" : "Search songs, artists, albums");
 
         String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
         rows.clear();
-        if (playlistIndex) {
+        if (live) {
+            visibleTracks = Collections.emptyList();
+            for (LibraryStore.Station station : library.stations()) {
+                URI link = RadioStream.parseLink(station.url());
+                String host = link == null ? "Live radio" : link.getHost();
+                if (matches(station.name() + " " + host, query)) {
+                    rows.add(new Row(station.name(), host, null, null, station));
+                }
+            }
+        } else if (playlistIndex) {
             visibleTracks = Collections.emptyList();
             for (LibraryStore.Playlist playlist : library.playlists()) {
                 if (matches(playlist.name(), query)) {
                     rows.add(new Row(playlist.name(), playlist.count() + (playlist.count() == 1 ? " song" : " songs"),
-                            null, playlist));
+                            null, playlist, null));
                 }
             }
         } else {
@@ -522,16 +545,22 @@ public final class MainActivity extends Activity implements Player.Listener {
                 if (matches(track.title() + " " + info, query)) {
                     tracks.add(track);
                     String subtitle = info.isEmpty() ? time(track.duration()) : info + " · " + time(track.duration());
-                    rows.add(new Row(track.title(), subtitle, track, null));
+                    rows.add(new Row(track.title(), subtitle, track, null, null));
                 }
             }
             visibleTracks = tracks;
         }
         empty.setText(!query.isEmpty() ? "No matches"
+                : live ? "Add a station’s direct stream link to listen live."
                 : playlistIndex ? "Create a playlist to group your songs."
                 : inPlaylist ? "Add songs from the Library using the menu beside each track."
                 : "Add audio files to start your offline library.");
         adapter.notifyDataSetChanged();
+    }
+
+    private void styleTab(Button button, boolean selected) {
+        setButtonStyle(button, selected ? ACCENT : SURFACE, selected ? ON_ACCENT : TEXT);
+        button.setSelected(selected);
     }
 
     private void selectRow(int index) {
@@ -541,6 +570,10 @@ public final class MainActivity extends Activity implements Player.Listener {
             resetSearch();
         } else if (controller == null) {
             showMessage("The player is starting. Try again in a moment.");
+        } else if (row.station() != null) {
+            tuneIn(new MediaItem.Builder().setMediaId(RadioStream.mediaId(row.station().id()))
+                    .setMediaMetadata(new MediaMetadata.Builder().setTitle(row.station().name()).build())
+                    .build());
         } else {
             List<MediaItem> queue = new ArrayList<>(visibleTracks.size());
             for (LibraryStore.Track track : visibleTracks) {
@@ -553,6 +586,81 @@ public final class MainActivity extends Activity implements Player.Listener {
             controller.prepare();
             controller.play();
         }
+    }
+
+    private void stationDialog(LibraryStore.Station station) {
+        LinearLayout form = column();
+        form.setPadding(dp(20), dp(8), dp(20), dp(4));
+        EditText name = field("Station name");
+        name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(80)});
+        EditText url = field("HTTPS stream URL");
+        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        url.setFilters(new InputFilter[]{new InputFilter.LengthFilter(4096)});
+        if (station != null) {
+            name.setText(station.name());
+            url.setText(station.url());
+        }
+        margin(form, name, 0, 52);
+        margin(form, url, 8, 52);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(station == null ? "Add station" : "Edit station")
+                .setMessage("Use a direct MP3 or AAC stream, or an HLS link ending in .m3u8.")
+                .setView(form).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            String label = name.getText().toString().trim();
+            if (label.isEmpty()) {
+                name.setError("Enter a station name");
+                return;
+            }
+            URI link = RadioStream.parseLink(url.getText().toString());
+            if (link == null) {
+                url.setError("Enter a direct HTTPS stream URL");
+                return;
+            }
+            String stream = link.toASCIIString();
+            if (!library.saveStation(station, label, stream)) {
+                url.setError("This stream is already saved");
+                return;
+            }
+            if (station != null && isCurrentStation(station.id()) && !station.url().equals(stream)) stopRadio();
+            dialog.dismiss();
+            refreshLibrary();
+        }));
+        dialog.show();
+    }
+
+    private void showStationMenu(View anchor, LibraryStore.Station station) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add("Edit station").setOnMenuItemClickListener(item -> {
+            stationDialog(station);
+            return true;
+        });
+        menu.getMenu().add("Remove station").setOnMenuItemClickListener(item -> {
+            new AlertDialog.Builder(this).setTitle("Remove this station?")
+                    .setNegativeButton("Cancel", null).setPositiveButton("Remove", (dialog, which) -> {
+                        if (isCurrentStation(station.id())) stopRadio();
+                        library.deleteStation(station.id());
+                        refreshLibrary();
+                    }).show();
+            return true;
+        });
+        menu.show();
+    }
+
+    private boolean isCurrentStation(long id) {
+        MediaItem item = controller == null ? null : controller.getCurrentMediaItem();
+        return item != null && RadioStream.mediaId(id).equals(item.mediaId);
+    }
+
+    private void tuneIn(MediaItem station) {
+        controller.setMediaItem(station);
+        controller.prepare();
+        controller.play();
+    }
+
+    private void stopRadio() {
+        controller.stop();
+        controller.clearMediaItems();
     }
 
     private void showTrackMenu(View anchor, LibraryStore.Track track) {
@@ -631,7 +739,7 @@ public final class MainActivity extends Activity implements Player.Listener {
                     .setMessage("The songs will stay in your library.")
                     .setNegativeButton("Cancel", null).setPositiveButton("Delete", (dialog, which) -> {
                         library.deletePlaylist(playlist.id());
-                        if (openPlaylist != null && openPlaylist.id() == playlist.id()) changeTab(true);
+                        if (openPlaylist != null && openPlaylist.id() == playlist.id()) changeTab(Tab.PLAYLISTS);
                         else refreshLibrary();
                     }).show();
             return true;
@@ -679,6 +787,12 @@ public final class MainActivity extends Activity implements Player.Listener {
 
     private void togglePlayback() {
         if (controller == null) return;
+        MediaItem item = controller.getCurrentMediaItem();
+        if (item != null && RadioStream.isStation(item.mediaId)) {
+            if (tuningOrPlaying()) stopRadio();
+            else tuneIn(item);
+            return;
+        }
         if (controller.getPlayWhenReady() && controller.getPlaybackState() != Player.STATE_ENDED) {
             controller.pause();
         } else {
@@ -695,13 +809,26 @@ public final class MainActivity extends Activity implements Player.Listener {
 
     @Override
     public void onPlayerError(PlaybackException error) {
-        showMessage("This audio file could not be played.");
+        MediaItem item = controller == null ? null : controller.getCurrentMediaItem();
+        showMessage(item != null && RadioStream.isStation(item.mediaId)
+                ? "Could not connect to the station. Check its stream URL and your connection."
+                : "This audio file could not be played.");
     }
 
     private void updatePlayer() {
-        boolean hasTrack = controller != null && controller.getCurrentMediaItem() != null;
-        playerCard.setVisibility(hasTrack ? View.VISIBLE : View.GONE);
-        if (!hasTrack) return;
+        MediaItem item = controller == null ? null : controller.getCurrentMediaItem();
+        playerCard.setVisibility(item == null ? View.GONE : View.VISIBLE);
+        adapter.notifyDataSetChanged();
+        if (item == null) return;
+        boolean radio = RadioStream.isStation(item.mediaId);
+        int trackControls = radio ? View.GONE : View.VISIBLE;
+        for (View control : new View[]{lyrics, queue, timeline, shuffle, previous, next, repeat}) {
+            control.setVisibility(trackControls);
+        }
+        if (radio) {
+            updateRadio(item);
+            return;
+        }
         MediaMetadata metadata = controller.getMediaMetadata();
         nowTitle.setText(metadata.title == null ? "Audio" : metadata.title);
         nowArtist.setText(TextUtils.isEmpty(metadata.artist) ? "Playing from your library" : metadata.artist);
@@ -714,11 +841,35 @@ public final class MainActivity extends Activity implements Player.Listener {
         repeat.setContentDescription(controller.getRepeatMode() == Player.REPEAT_MODE_ALL ? "Repeat on" : "Repeat off");
         next.setEnabled(controller.hasNextMediaItem());
         updateProgress();
-        adapter.notifyDataSetChanged();
+    }
+
+    private void updateRadio(MediaItem item) {
+        CharSequence station = item.mediaMetadata.title;
+        nowTitle.setText(TextUtils.isEmpty(station) ? "Live radio" : station);
+        boolean active = tuningOrPlaying();
+        playPause.setText(active ? "Stop radio" : "Play live");
+        playPause.setContentDescription(active ? "Stop live radio" : "Play live radio");
+        CharSequence program = controller.getMediaMetadata().title;
+        if (controller.getPlayerError() != null) {
+            nowArtist.setText("Station unavailable");
+        } else if (active && controller.getPlaybackState() == Player.STATE_BUFFERING) {
+            nowArtist.setText("Connecting…");
+        } else if (active) {
+            nowArtist.setText(TextUtils.isEmpty(program) || TextUtils.equals(station, program)
+                    ? "Live radio" : program);
+        } else {
+            nowArtist.setText("Live radio · Stopped");
+        }
+    }
+
+    private boolean tuningOrPlaying() {
+        int state = controller.getPlaybackState();
+        return controller.getPlayWhenReady() && (state == Player.STATE_BUFFERING || state == Player.STATE_READY);
     }
 
     private void updateProgress() {
-        if (controller == null || controller.getCurrentMediaItem() == null) return;
+        MediaItem item = controller == null ? null : controller.getCurrentMediaItem();
+        if (item == null || RadioStream.isStation(item.mediaId)) return;
         long total = Math.max(0, controller.getDuration());
         long elapsed = Math.max(0, controller.getCurrentPosition());
         duration.setText(time(total));
@@ -730,7 +881,8 @@ public final class MainActivity extends Activity implements Player.Listener {
         }
     }
 
-    private record Row(String title, String subtitle, LibraryStore.Track track, LibraryStore.Playlist playlist) {}
+    private record Row(String title, String subtitle, LibraryStore.Track track,
+            LibraryStore.Playlist playlist, LibraryStore.Station station) {}
 
     private final class RowAdapter extends BaseAdapter {
         @Override public int getCount() { return rows.size(); }
@@ -778,11 +930,14 @@ public final class MainActivity extends Activity implements Player.Listener {
             title.setText(row.title());
             subtitle.setText(row.subtitle());
             MediaItem current = controller == null ? null : controller.getCurrentMediaItem();
-            boolean active = row.track() != null && current != null && current.mediaId.equals(row.track().id());
-            icon.setText(active ? "▶" : row.track() == null ? "≡" : "♪");
+            String mediaId = row.station() != null ? RadioStream.mediaId(row.station().id())
+                    : row.track() == null ? null : row.track().id();
+            boolean active = current != null && current.mediaId.equals(mediaId);
+            icon.setText(active ? "▶" : row.station() != null ? "◉" : row.track() == null ? "≡" : "♪");
             options.setContentDescription("Options for " + row.title());
             options.setOnClickListener(view -> {
-                if (row.track() == null) showPlaylistMenu(view, row.playlist());
+                if (row.station() != null) showStationMenu(view, row.station());
+                else if (row.playlist() != null) showPlaylistMenu(view, row.playlist());
                 else showTrackMenu(view, row.track());
             });
         }

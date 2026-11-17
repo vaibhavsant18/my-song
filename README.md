@@ -1,6 +1,6 @@
 # my-song
 
-An ad-free Android music player for audio files on your phone.
+An Android music player for audio files on your phone and live internet radio. The app itself is ad-free.
 
 **[Download my-song.apk](https://github.com/vaibhavsant18/my-song/releases/latest/download/my-song.apk)** · [Latest release](https://github.com/vaibhavsant18/my-song/releases/latest)
 
@@ -16,6 +16,7 @@ An ad-free Android music player for audio files on your phone.
 - **Offline playback.** Imported copies are stored inside the app and play even if the original file moves. Removing a track from my-song removes its imported copy.
 - **Synced lyrics.** Choose **Add synced lyrics** in a song’s menu and pick a local `.lrc` file. Tap **Lyrics** in the player to follow or seek to a line.
 - **Playback controls.** Use **Queue** to jump to a track or clear upcoming songs. The player also supports background playback, Android media controls, seeking, shuffle, and repeat.
+- **Live radio.** Open **Live → Add station**, give it a name, and paste a direct HTTPS MP3 or AAC stream URL, or an HLS `.m3u8` link. Tap the saved station to listen and use **Stop radio** to disconnect. Live radio uses an internet connection. Your imported music stays playable offline.
 
 ## Build
 

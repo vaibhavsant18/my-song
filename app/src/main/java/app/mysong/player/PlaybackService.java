@@ -7,16 +7,17 @@ import android.net.Uri;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.datasource.FileDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.File;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -37,14 +38,16 @@ public final class PlaybackService extends MediaSessionService {
                 .setAudioAttributes(audioAttributes, true)
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_LOCAL)
-                .setMediaSourceFactory(new DefaultMediaSourceFactory(FileDataSource::new))
+                .setMediaSourceFactory(new PlaybackSources())
                 .build();
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true).build());
         PendingIntent openApp = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         session = new MediaSession.Builder(this, player)
                 .setSessionActivity(openApp)
-                .setCallback(new LocalTracks())
+                .setCallback(new LibraryItems())
                 .build();
     }
 
@@ -63,13 +66,26 @@ public final class PlaybackService extends MediaSessionService {
         super.onDestroy();
     }
 
-    private final class LocalTracks implements MediaSession.Callback {
+    private final class LibraryItems implements MediaSession.Callback {
         @Override
         public ListenableFuture<List<MediaItem>> onAddMediaItems(MediaSession session,
                 MediaSession.ControllerInfo controller, List<MediaItem> items) {
             List<MediaItem> resolved = new ArrayList<>(items.size());
             LibraryStore library = LibraryStore.get(PlaybackService.this);
             for (MediaItem item : items) {
+                if (RadioStream.isStation(item.mediaId)) {
+                    LibraryStore.Station station = library.station(RadioStream.stationId(item.mediaId));
+                    URI link = station == null ? null : RadioStream.parseLink(station.url());
+                    if (link == null) {
+                        return Futures.immediateFailedFuture(new IllegalArgumentException("Station is unavailable"));
+                    }
+                    MediaItem.Builder builder = item.buildUpon().setUri(Uri.parse(link.toASCIIString()))
+                            .setMediaMetadata(new MediaMetadata.Builder().setTitle(station.name())
+                                    .setArtist("Live radio").build());
+                    if (RadioStream.isHls(link)) builder.setMimeType(MimeTypes.APPLICATION_M3U8);
+                    resolved.add(builder.build());
+                    continue;
+                }
                 if (!TRACK_ID.matcher(item.mediaId).matches()) {
                     return Futures.immediateFailedFuture(new IllegalArgumentException("Invalid track ID"));
                 }
