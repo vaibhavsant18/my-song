@@ -1,13 +1,24 @@
 # my-song
 
-my-song is an Android player for audio files you select. Open **Add music** and choose **Add files** or **Add folder**. Folder import scans subfolders and skips duplicates already in the library. Imported copies are stored inside the app, so playback works offline even if the source file moves. Search by track, artist, or album. Use the menu beside a song to add it to a playlist.
+An ad-free Android music player for audio files on your phone.
 
-Use **Add synced lyrics** in the song menu to pick a local `.lrc` file. The player’s **Lyrics** button opens the timed lines. Tap a line to seek to that point in the song. **Queue** shows what plays next and lets you jump to a track or clear the upcoming entries.
+**[Download my-song.apk](https://github.com/vaibhavsant18/my-song/releases/latest/download/my-song.apk)** · [Latest release](https://github.com/vaibhavsant18/my-song/releases/latest)
 
-The player supports background playback, Android media controls, seeking, shuffle, and playlist repeat. It requests no Internet permission. There is no in-app catalogue, sign-in, or ad service. Removing a track from the library removes only my-song’s copy.
+## Install on Android
+
+1. On a phone running Android 8.0 or newer, tap **Download my-song.apk**.
+2. Open the downloaded APK from your notifications or **Downloads** and follow the Android install prompt. If prompted, allow installation from the app you used to open the file.
+3. In my-song, tap **Add music** and choose **Add files** or **Add folder**.
+
+## Use my-song
+
+- **Library and playlists.** Search by song, artist, or album. Use a song’s menu to add it to a playlist. Folder imports scan subfolders and skip duplicates.
+- **Offline playback.** Imported copies are stored inside the app and play even if the original file moves. Removing a track from my-song removes its imported copy.
+- **Synced lyrics.** Choose **Add synced lyrics** in a song’s menu and pick a local `.lrc` file. Tap **Lyrics** in the player to follow or seek to a line.
+- **Playback controls.** Use **Queue** to jump to a track or clear upcoming songs. The player also supports background playback, Android media controls, seeking, shuffle, and repeat.
 
 ## Build
 
 Use JDK 17 or newer and Android SDK Platform 37.0. Run `./gradlew :app:assembleRelease` on macOS or Linux, or `gradlew.bat :app:assembleRelease` on Windows. The unsigned release APK is written to `app/build/outputs/apk/release/`. Sign it with your own key using Android SDK Build Tools. Keep the same key for future updates to an installed copy.
 
-The app uses [AndroidX Media3](https://developer.android.com/media/media3) for playback and media controls.
+The app uses [AndroidX Media3](https://developer.android.com/media/media3) for playback and media controls. The download link above uses the `my-song.apk` asset in the latest GitHub release.
